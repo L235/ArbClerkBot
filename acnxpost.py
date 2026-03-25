@@ -13,6 +13,8 @@ def run(wiki):
     TACN = u"Wikipedia talk:Arbitration Committee/Noticeboard"
     AN = u"Wikipedia:Administrators' noticeboard"
     AUTH = u"User:ArbClerkBot/Authorized users"
+    NOTALK = r"<!--\s*ArbClerkBot-notalk\s*-->"
+    NOTALK_DONE = u"<!-- ArbClerkBot-notalk-processed -->"
 
     """
     load WP:ACN
@@ -21,10 +23,14 @@ def run(wiki):
         is level 2
         ends with a signature
         does not contain a link to WT:ACN
+        has not already been processed with <!-- ArbClerkBot-notalk-processed -->
     then
         ensure that the last editor of the page is an arb or clerk (userlink on AUTH)
-        add Discuss this link
-        create section on WT:ACN, if one by the same name does not already exist
+        if section contains <!-- ArbClerkBot-notalk -->
+            replace with <!-- ArbClerkBot-notalk-processed -->
+        else
+            add Discuss this link
+            create section on WT:ACN, if one by the same name does not already exist
         xpost to AN, if a section by the same name does not already exist
         search for links to user pages, ensure they are within the current section, and xpost
 
@@ -64,27 +70,32 @@ def run(wiki):
             updated = False
             changed_section = None
             for section in parsed.get_sections(levels=[2]):
-                if section.strip().endswith("(UTC)") and section.find(TACN) == -1:
+                if section.strip().endswith("(UTC)") and section.find(TACN) == -1 and section.find(NOTALK_DONE) == -1:
                     if auth():
                         title = section.filter_headings()[0].title.strip()
                         titletext = parser.parse(title).strip_code()
                         logging.info('Found new section ' + ACN + '#' + titletext)
+                        notalk = re.search(NOTALK, str(section))
                         #discuss = "\n: Discuss this at: '''[[" + TACN + "#" + titletext + "]]'''{{subst:hes}}\n\n"
                         discuss = "\n: Discuss this at: '''{{slink|" + TACN + "|" + titletext + "}}'''{{subst:hes}}\n\n"
                         announcement = str(section) + discuss
-                        section.append(discuss)
-                        if changed_section is None:
-                            changed_section = titletext
-                        else:
-                            changed_section = ""
 
-                        logging.info('Creating talk section ' + TACN + '#' + titletext)
-                        talkpage = wiki.pages[TACN]
-                        talksection = "\n== " + title + " ==\n: [[" + ACN + "#" + titletext + "|'''Original announcement''']]{{subst:hes}}\n"
-                        if talkpage.text().find("== " + title + " ==") == -1:
-                            talkpage.save(talkpage.text() + talksection, '/* ' + title + ' */ Creating talk page section (bot)', minor=False, bot=False)
+                        if notalk:
+                            section.replace(notalk.group(), NOTALK_DONE)
                         else:
-                            logging.warning('Section already exists.')
+                            section.append(discuss)
+                            if changed_section is None:
+                                changed_section = titletext
+                            else:
+                                changed_section = ""
+
+                            logging.info('Creating talk section ' + TACN + '#' + titletext)
+                            talkpage = wiki.pages[TACN]
+                            talksection = "\n== " + title + " ==\n: [[" + ACN + "#" + titletext + "|'''Original announcement''']]{{subst:hes}}\n"
+                            if talkpage.text().find("== " + title + " ==") == -1:
+                                talkpage.save(talkpage.text() + talksection, '/* ' + title + ' */ Creating talk page section (bot)', minor=False, bot=False)
+                            else:
+                                logging.warning('Section already exists.')
 
                         xpost(AN, announcement)
 
